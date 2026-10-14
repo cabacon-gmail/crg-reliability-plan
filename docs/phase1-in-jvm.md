@@ -85,7 +85,7 @@ Expected on `dev`, on Windows only: fails with marker A. Renaming file 0 to file
 
 Manifest entry:
 - `messagePattern`: `F12: the latest change was not autosaved`
-- `notes`: `Trigger: injected (another process holds the newest autosave file open, as antivirus or sync tools do). Windows only; SKIPPED elsewhere.`
+- `notes`: `Trigger: injected (another process holds the newest autosave file open, as antivirus or sync tools do). Windows only; SKIPPED elsewhere. Expectation is provisional pending the autosave-semantics decision.`
 
 ### 4.3 F13: a rejected autosave leaks into the restored state
 
@@ -117,7 +117,7 @@ Expected on `dev`: passes, because the JSON fails to parse before anything is ap
 
 Manifest entry, for the finding only:
 - `messagePattern`: `F13: state from the rejected newest autosave leaked`
-- `notes`: `Trigger: injected (the newest autosave holds a value this version cannot parse, e.g. written by a newer version or damaged). Entries that exist only in the rejected file survive the fallback.`
+- `notes`: `Trigger: injected (the newest autosave holds a value this version cannot parse, e.g. written by a newer version or damaged). Entries that exist only in the rejected file survive the fallback. Expectation is provisional pending the autosave-semantics decision.`
 
 ### 4.4 F14: connect and disconnect race in the state fan-out
 
@@ -176,6 +176,5 @@ Out of scope:
 - F12 durability across `kill -9`, which needs the process harness (Phase 2).
 - Scheduled runs and CI.
 
-Open questions for you:
-- **Autosave history.** The autosaves cover only the last ~60 s (7 files × 10 s), and older backups are made only at start-up. Is longer recovery history a requirement, for example being able to restore the state from two minutes ago? If so, it becomes its own test. Today it's a product decision, not a bug.
-- **How should a failed autosave be reported?** F12's test checks only that the latest change survives. If you also want "the operator is told", we need to agree what they see before a test can assert it: for example, a state key the SBO screen shows as a warning.
+Open questions:
+- **Autosave semantics are undecided.** Retention, how failures are reported, the loss window and fallback behaviour are tracked as a program-level open question in the [main plan](../README.md#open-design-question-autosave-semantics). The F12 and F13 tests in this phase encode provisional expectations: the latest change survives a locked file, and a rejected snapshot leaves no trace. They are revisited once that question is settled. No retention or failure-reporting test is written in Phase 1.

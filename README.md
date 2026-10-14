@@ -118,6 +118,36 @@ The biggest risk is flaky timing tests, which would teach people to ignore the s
 
 Tests run on dedicated desktops, so contention for test machines and run-time budgets are not a concern; the full 8-hour soak can run nightly.
 
+### Open design question: autosave semantics
+
+Status: **open**. Owner: Charles. Nothing below is decided.
+
+We have not yet defined what autosave is supposed to guarantee. Several findings (F12, F13) and targets (data lost on a hard kill) depend on that definition, so for now their tests encode **provisional** expectations. Once this question is settled, those tests and targets are revisited.
+
+**What autosave does today** (on `dev`, from reading the code):
+- Every 10 s, the whole state is written as one JSON snapshot to `config/autosave/scoreboard-0-secs-ago.json`: every game, plus settings, teams, rulesets and devices. Seven rotating files cover roughly the last 60 s.
+- At start-up, the existing files are copied to `config/autosave/backup/<timestamp>/`, and the newest file that parses is loaded. A value that fails partway through a load leaves entries from the rejected file behind (F13).
+- Writes are not flushed to disk, and failed renames are ignored (F12). Failures go only to the log.
+- A save also runs on clean shutdown.
+- Separately, each game's own JSON is written to `html/game-data/json/` after each jam and when the score is made official. The statsbook export is a third, manual copy.
+
+**Questions to answer:**
+1. **Loss window.** How much play may be lost, and in which failures: a process crash, a power cut, the laptop sleeping, a full or locked disk? Today it's up to 10 s, and nothing is guaranteed after a power cut.
+2. **History.** How far back must an operator be able to go, and how? For example, "undo the last two minutes" or "restore the state before the period started". Who triggers it, and from which screen?
+3. **Consistency.** Must every snapshot be a consistent point between operator actions, and every restore all-or-nothing? If the newest snapshot can't be loaded, should the scoreboard fall back silently, fall back and warn, or stop and ask?
+4. **Visibility.** When saving fails or falls behind, who is told, and where: the SBO screen, every operator screen, only the log?
+5. **Source of truth.** How do the autosave, the per-game JSON and the statsbook relate? Which one wins after a crash, and which is authoritative after the game?
+6. **Scope.** One snapshot of everything, or per game? Should device and operator data be included?
+7. **Versions.** Must a newer release load an older release's autosave, and the other way round?
+8. **Architecture.** In the strangler-fig rewrite, does autosave stay a periodic snapshot, or become something else, such as an append-only log of operator actions? The answer shapes the persistence seam in the rewrite plan.
+
+**What currently rests on provisional answers:**
+- F12's test assumes the latest change must survive a locked autosave file.
+- F13's test assumes a rejected snapshot leaves no trace.
+- The scorecard target "data lost on a hard kill: under 10 s" (Phase 2) assumes today's 10 s interval is acceptable.
+
+Retention and failure-reporting tests are not written until questions 2 and 4 are answered.
+
 Open questions:
 
 - [x] This will land upstream in `rollerderby/scoreboard`. Decided: until maintainers agree on a convention, expectations stay in a manifest inside reliability/ instead of a `@KnownIssue` annotation.
