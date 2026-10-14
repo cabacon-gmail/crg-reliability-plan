@@ -14,7 +14,7 @@ We will build a reliability suite whose tests fail today, stay in the repo as tr
 
 Kept separate from the existing tests: the suite lives in its own `reliability/` source tree with its own `ant reliability` target, so `ant test` (and `ant zip`, which depends on it) never compiles or runs it.
 
-The suite maps one-to-one onto the 18 findings from the code review (F1–F18), so every test answers a question already raised.
+The suite maps one-to-one onto the 18 findings from the code review (F1–F18), so every test answers a question already raised. One test, the F7 pilot, comes first and validates the plan and workflow before the others are written.
 
 ## Test architecture
 
@@ -98,7 +98,7 @@ The baseline for each metric is captured on `dev` in Phase 1, before any fix, an
 
 ## Phased rollout
 
-The suite lands in five phases over about 11 weeks of one developer's time, and Phase 1 already produces failing tests for five findings without any new harness. Each phase ends at a gate, and no fix work needs to wait for the last phase: a finding can be fixed as soon as its test exists.
+The suite lands in five phases over about 11 weeks of one developer's time. We start with one pilot test, for F7, and take it through the whole workflow — write it, confirm it fails on `dev` for the right reason, add its manifest entry, run it by hand on all three OSes, simulate a fix to see it flip — then hold a short retrospective. Only once the pilot works do we implement the rest of the tests, starting with four more in-JVM findings in Phase 1. Each phase ends at a gate, and no fix work needs to wait for the last phase: a finding can be fixed as soon as its test exists.
 
 ![All 17 findings get a failing test in five phases, about 11 weeks](images/rollout.png)
 

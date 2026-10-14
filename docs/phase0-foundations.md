@@ -2,7 +2,7 @@
 
 Status: ready to implement · Parent plan: [README.md](../README.md) · Oct 13, 2026
 
-Phase 0 builds the machinery every later reliability test depends on: a self-contained `reliability/` tree in a fork of `rollerderby/scoreboard`, a JSON manifest of expected failures, and a runner that judges each run against that manifest. Everything in Phase 0 is run and checked by hand: there are no scheduled runs and no automated tests of the runner itself. Section 12 lists the manual checks that verify it. Phase 0 adds no tests for real findings; those start in Phase 1, together with scheduled runs and the runner's automated self-tests.
+Phase 0 builds the machinery every later reliability test depends on: a self-contained `reliability/` tree in a fork of `rollerderby/scoreboard`, a JSON manifest of expected failures, and a runner that judges each run against that manifest. Everything in Phase 0 is run and checked by hand: there are no scheduled runs and no automated tests of the runner itself. Section 12 lists the manual checks that verify it. Phase 0 adds exactly one test for a real finding: a pilot for F7 (section 13), used to validate the plan and the workflow end to end. The remaining findings get tests only after the pilot works and its retrospective is reviewed. Scheduled runs and the runner's automated self-tests start in Phase 1.
 
 This document is written so an agent can implement it without further questions. Where a choice was open, it is decided here.
 
@@ -58,6 +58,8 @@ reliability/
       CanaryReliabilityTest.java
     com/carolinarollergirls/scoreboard/reliability/smoke/
       ProductLoadsReliabilityTest.java
+    com/carolinarollergirls/scoreboard/core/game/
+      UndoReliabilityTest.java      the F7 pilot (section 13)
   build/                          generated, git-ignored
 ```
 
@@ -150,8 +152,8 @@ java -cp <classpath> com.carolinarollergirls.scoreboard.reliability.runner.Relia
 
 1. Load and validate the manifest (section 6).
 2. Discover test classes: every `*ReliabilityTest.class` under `--test-classes`, excluding inner classes (names containing `$`), sorted by name, then filtered by `--only`.
-3. Run each class in **its own child JVM** by default, because the product keeps global state (`ScoreBoardClock`, the static `coreLock`, `GameImpl`'s static thresholds, non-daemon timer threads). The child command is `java -cp <classpath> -Dreliability.workDir=<work-dir>/<ClassName> -Dreliability.rateScale=<scale> com.carolinarollergirls.scoreboard.reliability.runner.ClassRunner <ClassName> <partial-results-file>`, with the working directory set to that work subdirectory. The child's stdout and stderr go to `<report-dir>/logs/<ClassName>.log`.
-4. `ClassRunner` uses `JUnitCore` with a `RunListener` to record each method as a `TestResult`: `test`, `status` (`passed`, `failed`, `ignored`), `failureText`, `durationMs`. It writes them as JSON to the partial-results file, then calls `System.exit(0)`. The explicit exit is required because product timers are non-daemon threads.
+3. Run each class in **its own child JVM** by default, because the product keeps global state (`ScoreBoardClock`, the static `coreLock`, `GameImpl`'s static thresholds, non-daemon timer threads). The child command is `java -cp <classpath> -Dreliability.workDir=<work-dir>/<ClassName> -Dreliability.rateScale=<scale> com.carolinarollergirls.scoreboard.reliability.runner.ClassRunner <ClassName> <partial-results-file>`, with the working directory set to that work subdirectory. Before starting the child, the runner creates that subdirectory and copies the repo's `config/` into it, excluding `config/autosave/`. The product resolves `config/penalties/*.json` relative to the current directory and fails to create a game without it. The child's stdout and stderr go to `<report-dir>/logs/<ClassName>.log`.
+4. `ClassRunner` uses `JUnitCore` with a `RunListener` to record each method as a `TestResult`: `test`, `status` (`passed`, `failed`, `ignored`), `failureText`, `durationMs`. It writes them as JSON to the partial-results file, then calls `System.exit(0)` from a `finally` block, even if loading the class or writing results throws. The explicit exit is required because the product starts non-daemon threads (timers, the media watcher): a failed product start-up without it leaves the JVM hanging until the class timeout.
 5. If the child JVM exceeds `--class-timeout`, the parent kills it. Every method of that class that has no recorded result gets `status=failed` and `failureText=TIMEOUT after <n>s`. If the child exits without writing results, every method gets `status=failed` and `failureText=CHILD_CRASH exit=<code>`. To know the method names in these cases, the parent lists them by reflection: public, non-static, `@Test`-annotated methods.
 6. Evaluate verdicts (section 8), write the report (section 10), print the summary to stdout, and exit with code 0 (no blocking verdicts), 1 (at least one blocking verdict) or 2 (infrastructure error).
 
@@ -259,15 +261,56 @@ Each check is done by hand from the root of a fresh clone of the fork on `reliab
 | M12 | Existing build untouched | Run `ant test`, then `ant compile`. | Same results as on upstream `dev`; nothing under `reliability/` is compiled or run. |
 | M13 | No existing file changed | `git diff --stat <upstream dev>...HEAD -- . ':(exclude)reliability'` | Prints nothing. |
 
-## 13. Acceptance criteria (the Phase 0 gate)
+## 13. Pilot test: F7
 
-Phase 0 is done when every manual check M1–M13 passes on at least one Linux, one macOS and one Windows desktop. The pull request into `reliability` records the results as a table: one row per check, one column per OS, each cell pass or fail with the date and tester. M12 and M13 only need to be run once, on any OS.
+Before writing tests for any other finding, we take one real test through the whole workflow to validate the plan, the runner and the process. F7 is the pilot because it is deterministic, needs no harness beyond the in-JVM layer, and exercises a `single` manifest entry. If the pilot shows the workflow needs to change, we change this design and the plan before going further.
 
-The implementing agent runs M1–M13 on Linux in its own environment before opening the pull request and fills in that column; a person runs the macOS and Windows columns.
+### The test: `UndoReliabilityTest`
 
-## 14. Out of scope for Phase 0
+Location: `reliability/tests/com/carolinarollergirls/scoreboard/core/game/UndoReliabilityTest.java`. It uses only public product API and follows the setup pattern of the existing `GameImplTests`.
 
-- Any test for findings F1–F17 (Phase 1 onward).
+- `@Before`: `ScoreBoardClock.getInstance().stop()`; `GameImpl.setQuickClockThreshold(0L)`; `Version.load()`; `sb = new ScoreBoardImpl(false)`; `sb.postAutosaveUpdate()`; `g = (GameImpl) sb.getCurrentGame().get(CurrentGame.GAME)`.
+- `controlsStillWorkAfterUndoRestoreFails`:
+    1. `g.startJam()`, then assert `g.isInJam()`. This also records the undo snapshot.
+    2. Add a one-shot `ScoreBoardListener` to `g`. While armed, the first event whose property is `Game.IN_JAM` disarms it and throws `IllegalStateException("injected listener failure")`. This stands in for any bug in a listener that runs during an undo.
+    3. Arm it and call `g.clockUndo(false)` inside a try/catch that swallows `RuntimeException`. The real server swallows it the same way, in the WebSocket and JSON-setter handlers.
+    4. Call `g.startJam()`, then `assertTrue("F7: Start Jam had no effect after an undo whose restore failed", g.isInJam())`.
+
+On today's `dev` the test fails at step 4: the exception leaves `restoreRunning` set, so `startJam()` silently does nothing (`GameImpl.restoreSnapshot` and `clockUndo`). This was confirmed with a scratch run of these exact steps against `dev` at `95286c1`: the undo threw the injected exception, and the second `startJam()` left `isInJam()` false.
+
+Manifest entry:
+
+```json
+{
+  "test": "com.carolinarollergirls.scoreboard.core.game.UndoReliabilityTest#controlsStillWorkAfterUndoRestoreFails",
+  "finding": "F7",
+  "kind": "single",
+  "messagePattern": "F7: Start Jam had no effect after an undo whose restore failed",
+  "notes": "Pilot test. Fails while an exception during undo leaves restoreRunning set."
+}
+```
+
+### Pilot workflow
+
+Each step is done by hand and its outcome recorded in the pull request.
+
+| # | Step | Expected |
+| --- | --- | --- |
+| P1 | Write the test, without a manifest entry. Run with `-Donly=UndoReliability`. | Build fails; `NEW_FAILURE` with the F7 message. The class log shows the injected exception. This confirms it fails for the reason in the finding. |
+| P2 | Add the manifest entry. Run the full suite. | Exit 0; `KNOWN` for F7 alongside the canary and smoke results. |
+| P3 | Simulate a fix with a throwaway local edit to `GameImpl`: move `restoreRunning = false` into a `finally` in `restoreSnapshot`, and restart the global clock in a `finally` in `clockUndo`. Run, then discard the edit with `git checkout -- src`. Never commit it. | Build fails; `UNEXPECTED_PASS` naming F7. This proves a real fix would flip the test. |
+| P4 | Repeat P2 on macOS and Windows. | Same result on each OS. |
+| P5 | Write `docs/pilot-retro.md` in `crg-reliability-plan`: what worked, what was awkward, time spent, and proposed changes to this design or the plan. | Reviewed and accepted by Charles before any other finding gets a test. |
+
+## 14. Acceptance criteria (the Phase 0 gate)
+
+Phase 0 is done when every manual check M1–M13 and pilot step P1–P4 passes on at least one Linux, one macOS and one Windows desktop, and the pilot retrospective (P5) is accepted. The pull request into `reliability` records the results as a table: one row per check, one column per OS, each cell pass or fail with the date and tester. M12, M13, P1 and P3 only need to be run once, on any OS.
+
+The implementing agent runs M1–M13 and P1–P3 on Linux in its own environment before opening the pull request and fills in that column; a person runs the macOS and Windows columns.
+
+## 15. Out of scope for Phase 0
+
+- Tests for any finding other than the F7 pilot. They start only after the pilot retrospective is accepted.
 - The protocol harness, device simulators, fault proxy and libfaketime (Phases 2–3).
 - Scheduled or nightly runs, their scripts, and archiving of past reports (Phase 1).
 - Automated self-tests of the runner (Phase 1).
