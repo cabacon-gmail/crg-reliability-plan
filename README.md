@@ -46,7 +46,7 @@ Commands and state cross the proxy in both directions; the observer skips it, wh
 
 Every test asserts the correct behaviour and simply fails while the bug exists. Nothing in `src/` or `tests/` changes and no annotation is needed: the expected outcomes live in one manifest inside `reliability/`, and the `ant reliability` target compares each run against it. The run is green while known bugs persist and red only when something changes.
 
-1. **Write.** The test asserts what the crew needs. Run it on `master`, confirm it fails for the reason in the finding, then add a line to `reliability/expected-failures.txt`: the test name, the finding ID, and a short expected-failure message, so an unrelated crash does not count.
+1. **Write.** The test asserts what the crew needs. Run it on `dev`, confirm it fails for the reason in the finding, then add a line to `reliability/expected-failures.json`: the test name, the finding ID, and a short expected-failure message, so an unrelated crash does not count.
 2. **Live in CI.** `ant reliability`, separate from `ant test`, runs the suite and checks it against the manifest. Until upstream agrees, it runs in a fork's CI or as a non-blocking CircleCI job: layers 1–2 on every PR, layers 3–4 on PRs touching the server or `html/json` and nightly, the soak nightly.
 3. **Flip.** The PR that fixes the issue deletes its manifest line. A test that passes while still listed fails the reliability run with "issue looks fixed", so the manifest cannot go stale.
 4. **Guard.** From then on it is an ordinary regression test, and it runs against both the old and the new core during the strangler-fig migration.
@@ -57,7 +57,7 @@ The manifest doubles as the readable list of open findings and their tests. If m
 
 ## Test catalog
 
-Seventeen findings get at least one test, and every test below is expected to fail on today's `master`. F18 (missing tests in these areas) is what the suite itself fixes. Thresholds are first proposals, to tune once the harness measures the current baseline.
+Seventeen findings get at least one test, and every test below is expected to fail on today's `dev`. F18 (missing tests in these areas) is what the suite itself fixes. Thresholds are first proposals, to tune once the harness measures the current baseline.
 
 | ID | Finding | Scenario | Passes when | Layer |
 | --- | --- | --- | --- | --- |
@@ -94,7 +94,7 @@ Each nightly run publishes one JSON scorecard, and the trend of these numbers is
 | Fan-out race rate | Core-thread exceptions per 10,000 connect/disconnect cycles | 0 |
 | Server memory after an 8-hour soak | Heap after a full GC, against the start of the run | Under 1.5× |
 
-The baseline for each metric is captured on `master` in Phase 1, before any fix, and kept as the reference line on every later chart.
+The baseline for each metric is captured on `dev` in Phase 1, before any fix, and kept as the reference line on every later chart.
 
 ## Phased rollout
 

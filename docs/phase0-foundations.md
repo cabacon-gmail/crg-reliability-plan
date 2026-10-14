@@ -26,8 +26,8 @@ This document is written so an agent can implement it without further questions.
 
 ## 3. Branching
 
-- The fork's `master` mirrors upstream `master` and is not committed to directly.
-- A long-lived branch `reliability` carries the suite. It is created from upstream `master` at the start of Phase 0 and periodically merged forward from upstream.
+- Upstream develops on `dev` (its default branch); `master` there is an older branch and is not used. The fork's `dev` mirrors upstream `dev` and is not committed to directly.
+- A long-lived branch `reliability` carries the suite. It is created from upstream `dev` at the start of Phase 0 and periodically merged forward from upstream.
 - Phase 0 work happens on `reliability-phase0`, branched from `reliability`, and lands as one pull request into `reliability` in the fork.
 - Nightly runs check out `reliability`.
 
@@ -291,8 +291,8 @@ Run all of these from the root of a fresh clone of the fork on branch `reliabili
 1. `ant -f reliability/build.xml` exits 0. The summary shows `KNOWN` for the planted failure, and `PASS` for the planted pass and the smoke test.
 2. Deleting the canary entry from `expected-failures.json` makes the same command exit non-zero with `NEW_FAILURE`. Restore it afterwards.
 3. Changing `plantedFailureIsReportedAsKnown` to pass makes the command exit non-zero with `UNEXPECTED_PASS`. Revert afterwards.
-4. `ant test` and `ant compile` behave exactly as on upstream `master`, and do not compile or run anything under `reliability/`.
-5. `git diff --stat <upstream master>...HEAD -- . ':(exclude)reliability'` prints nothing: no existing file was changed.
+4. `ant test` and `ant compile` behave exactly as on upstream `dev`, and do not compile or run anything under `reliability/`.
+5. `git diff --stat <upstream dev>...HEAD -- . ':(exclude)reliability'` prints nothing: no existing file was changed.
 6. `scripts/run-nightly.sh` (on Linux and macOS) and `scripts/run-nightly.ps1` (on Windows) each produce an archived run with `scorecard.json` whose `blocking` is `false`.
 7. Every self-test passes, and `selftest` runs as part of the default target.
 
