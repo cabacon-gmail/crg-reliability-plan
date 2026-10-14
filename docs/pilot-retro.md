@@ -1,6 +1,6 @@
 # Phase 0 pilot retrospective (P5)
 
-Status: proposed, awaiting acceptance by Charles · Oct 13, 2026
+Status: accepted by Charles, Oct 13, 2026. Changes 1, 2, 3 and 5 are in [PR #3](https://github.com/cabacon-gmail/scoreboard/pull/3); 4 and 6 are folded into the plan and the Phase 2 design.
 
 **Verdict: the workflow works, and the remaining findings can get tests.** The F7 pilot went through every step:
 - It failed on `dev` for the reason the code review predicted.
