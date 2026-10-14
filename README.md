@@ -102,7 +102,7 @@ The suite lands in five phases over about 11 weeks of one developer's time, and 
 
 ![All 17 findings get a failing test in five phases, about 11 weeks](images/rollout.png)
 
-Phase 0 is deliberately small so the known-issue convention is agreed before many tests depend on it. The week estimates are rough and assume someone who already knows the codebase.
+Phase 0 is deliberately small so the known-issue convention is agreed before many tests depend on it. It is run and verified by hand only; scheduled runs and the runner's automated self-tests start in Phase 1. The week estimates are rough and assume someone who already knows the codebase.
 
 ## Risks and open questions
 
