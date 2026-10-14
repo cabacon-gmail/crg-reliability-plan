@@ -2,7 +2,7 @@
 
 Status: ready to implement · Parent plan: [README.md](../README.md) · Oct 13, 2026
 
-Phase 0 builds the machinery every later reliability test depends on: a self-contained `reliability/` tree in a fork of `rollerderby/scoreboard`, a JSON manifest of expected failures, and a runner that judges each run against that manifest. Everything in Phase 0 is run and checked by hand: there are no scheduled runs and no automated tests of the runner itself. Section 12 lists the manual checks that verify it. Phase 0 adds exactly one test for a real finding: a pilot for F7 (section 13), used to validate the plan and the workflow end to end. The remaining findings get tests only after the pilot works and its retrospective is reviewed. Scheduled runs and the runner's automated self-tests start in Phase 1.
+Phase 0 builds the machinery every later reliability test depends on: a self-contained `reliability/` tree in a fork of `rollerderby/scoreboard`, a JSON manifest of expected failures, and a runner that judges each run against that manifest. Everything in Phase 0 is started on demand by a person: there are no scheduled runs and no CI. The suite's own correctness is checked programmatically by one command, `ant -f reliability/build.xml verify` (section 12). Phase 0 adds exactly one test for a real finding: a pilot for F7 (section 13), used to validate the plan and the workflow end to end. The remaining findings get tests only after the pilot works and its retrospective is reviewed. Scheduled runs start in Phase 1.
 
 This document is written so an agent can implement it without further questions. Where a choice was open, it is decided here.
 
@@ -15,8 +15,8 @@ This document is written so an agent can implement it without further questions.
 | Language and level | Java, compiled with `source`/`target` 1.8, JUnit 4.13.2 and Hamcrest 2.2 from `test-libs/`. |
 | Dependencies | Only jars already in the repo: `lib/deps/*.jar` (jackson-jr is used for JSON) and `test-libs/*.jar`. No downloads, no new jars. |
 | Manifest | JSON, parsed with jackson-jr (`com.fasterxml.jackson.jr.ob.JSON`). |
-| Where it runs | Dedicated desktops running Linux, Windows and macOS, started by hand. No scheduled jobs and no CI in Phase 0. |
-| How Phase 0 is verified | Manual checks only (section 12). No automated self-tests of the runner until Phase 1. |
+| Where it runs | Dedicated desktops running Linux, Windows and macOS, started on demand. No scheduled jobs and no CI in Phase 0. |
+| How Phase 0 is verified | Programmatically, by the `verify` target (section 12). Nobody edits files by hand to check the runner. |
 | Known-issue mechanism | The manifest only. No annotations or JUnit rules on test classes. |
 
 ## 2. Prerequisites (owner: Charles)
@@ -159,7 +159,7 @@ java -cp <classpath> com.carolinarollergirls.scoreboard.reliability.runner.Relia
 
 ## 8. Verdicts
 
-`Evaluator` is a pure function from (list of `TestResult`, `Manifest`) to a verdict per test, plus a verdict for each manifest entry that matched no result. It has no I/O, so it is easy to cover with automated self-tests when those arrive in Phase 1.
+`Evaluator` is a pure function from (list of `TestResult`, `Manifest`) to a verdict per test, plus a verdict for each manifest entry that matched no result. It has no I/O, so finer-grained unit tests can be added later if `verify` turns out not to be enough.
 
 | Verdict | Condition | Blocks the run |
 | --- | --- | --- |
@@ -237,29 +237,36 @@ Both stay in the suite permanently. If the mechanism ever breaks, the canary tur
 
 - `scoreBoardStartsInWorkDir`: asserts `Version.load()` returns true, then constructs `new ScoreBoardImpl(false)`. It asserts that `getCurrentGame()` is not null and that `html/images/teamlogo` now exists under the child's working directory, not the repo. This proves that product classes, `release.properties` and `lib/deps` are on the child classpath, and that `BasePath` (the current directory) points at the per-class work dir, which Phase 1 relies on. The test must pass and is not listed in the manifest.
 
-### No automated self-tests yet
+### Self-check fixtures (`reliability/selfcheck/fixtures/`)
 
-The runner's own behaviour is verified by the manual checks in section 12. Automated self-tests of the manifest loader, the evaluator and the rate parser are deferred to Phase 1.
+`verify` (section 12) needs tests with known outcomes, so it has its own fixture classes. They are compiled to a separate directory and never discovered by a normal run:
 
-## 12. Manual verification
+- `BasicFixtureReliabilityTest`: `alwaysFails` (message `fixture: intentional failure`) and `alwaysPasses`.
+- `PassFixtureReliabilityTest`: one passing test.
+- `SleepFixtureReliabilityTest`: sleeps 60 s, for the timeout check.
+- `RateFixtureReliabilityTest`: `RateTest.run(10, …)` failing exactly iteration 3.
 
-Each check is done by hand from the root of a fresh clone of the fork on `reliability-phase0`. Temporary edits are made in the working tree only and reverted afterwards with `git checkout -- reliability`. "Run" means `ant -f reliability/build.xml`, and each check states the expected exit status, verdicts and files.
+## 12. Verification: `ant -f reliability/build.xml verify`
 
-| # | Check | Steps | Expected |
+Every check below is programmatic, and run on demand by a person. `ant -f reliability/build.xml verify` runs them all and prints one PASS, FAIL or SKIP line per check. It writes `reliability/build/verify/verify-summary.txt` and `verify-results.json`, and fails the build if any check fails. `-Dverify.skip.roottests=true` skips the slow root `ant test` (M12 is then SKIP). `-Dverify.base.ref=<ref>` changes M13's comparison base, which defaults to `origin/dev`.
+
+`verify` never edits tracked files. `SelfCheck` (in `reliability/selfcheck/src/`) runs `ReliabilityMain` in a child JVM for each scenario, against a temporary manifest under `reliability/build/verify/manifests/`. It uses either the real test classes or the self-check fixtures (section 11), and inspects the exit code, `results.json` and output.
+
+| # | Check | How `verify` does it | Passes when |
 | --- | --- | --- | --- |
-| M1 | Normal run | Run. | Exit 0. Summary shows `KNOWN` for `plantedFailureIsReportedAsKnown`, `PASS` for `plantedPassIsReportedAsPass` and `scoreBoardStartsInWorkDir`. |
-| M2 | Report files | After M1, open `reliability/build/report/`. | `results.json`, `summary.txt`, `scorecard.json` and `logs/` exist; `scorecard.json` has every field in section 10 and `blocking: false`. |
-| M3 | Work dir isolation | After M1, look under `reliability/build/work/` and the repo's `html/images/`. | `html/images/teamlogo` exists under the smoke test's work dir; nothing new appears in the repo's own `html/`. |
-| M4 | New failure | Delete the canary entry from the manifest, run. | Build fails; `NEW_FAILURE` for the planted failure. |
-| M5 | Unexpected pass | Make `plantedFailureIsReportedAsKnown` return normally, run. | Build fails; `UNEXPECTED_PASS` naming `F0`. |
-| M6 | Wrong failure | Change the canary's `messagePattern` to `something else`, run. | Build fails; `WRONG_FAILURE`. |
-| M7 | Stale entry | Add an entry for `...CanaryReliabilityTest#noSuchMethod`, run. | Build fails; `STALE_ENTRY`. |
-| M8 | `--only` filter | With M7's entry still present, run with `-Donly=smoke`. | Exit 0; only the smoke class runs; no `STALE_ENTRY`. |
-| M9 | Invalid manifests | One at a time: break the JSON; duplicate an entry; set `finding` to `X1`; set `messagePattern` to `(`; add an unknown field. Run each. | Exit code 2 before any test runs, with a message naming the problem and the entry. |
-| M10 | Timeout | Add a temporary `SleepReliabilityTest` whose test sleeps 60 s; run with `-Dclass.timeout.seconds=5`. | Build fails; the method shows `NEW_FAILURE` with failure text `TIMEOUT after 5s`, and the run continues to the other classes. |
-| M11 | Rate verdicts | Add a temporary test calling `RateTest.run(10, …)` that fails on iteration 3 only, with a `rate` entry and `baselineRate` 0.1; run. Then set `baselineRate` to 0.05 and run again. | First run: `KNOWN_RATE` at 0.1, exit 0. Second run: `RATE_REGRESSION` warning, exit still 0. |
-| M12 | Existing build untouched | Run `ant test`, then `ant compile`. | Same results as on upstream `dev`; nothing under `reliability/` is compiled or run. |
-| M13 | No existing file changed | `git diff --stat <upstream dev>...HEAD -- . ':(exclude)reliability'` | Prints nothing. |
+| M1 | Normal run | Real tests, real manifest. | Exit 0; every manifest entry is `KNOWN`/`KNOWN_RATE`/`RATE_REGRESSION`; canary failure `KNOWN`, canary pass and smoke `PASS`; no blocking verdicts. |
+| M2 | Report files | Inspects M1's report. | `results.json`, `summary.txt`, `scorecard.json`, one log per class; every scorecard field in section 10; `blocking: false`. |
+| M3 | Work dir isolation | Lists the repo's `html/` before and after M1. | Unchanged; each class work dir has `config/` (without `autosave/`); smoke work dir has `html/images/teamlogo`. |
+| M4 | New failure | Fixtures, empty manifest. | Exit 1; `alwaysFails` is `NEW_FAILURE`. |
+| M5 | Unexpected pass | Manifest lists `alwaysPasses`. | Exit 1; `UNEXPECTED_PASS` with "looks fixed". |
+| M6 | Wrong failure | `alwaysFails` listed with pattern `something else`. | Exit 1; `WRONG_FAILURE`. |
+| M7 | Stale entry | Manifest lists `BasicFixture…#noSuchMethod`. | Exit 1; `STALE_ENTRY`. |
+| M8 | `--only` filter | M7's manifest, `--only PassFixture`. | Exit 0; only `PassFixture` ran; no `STALE_ENTRY`. |
+| M9 | Invalid manifests | Five manifests: invalid JSON, duplicate entry, finding `X1`, regex `(`, unknown field. | Each exits 2 before any test runs, with the right message; all but the JSON case name the entry. |
+| M10 | Timeout | Sleep and pass fixtures, `--class-timeout 5`. | Exit 1; sleep test is `NEW_FAILURE` with `TIMEOUT after 5s`; pass fixture still ran; run took well under 60 s. |
+| M11 | Rate verdicts | Rate fixture with baseline 0.1, then 0.05. | 0.1: `KNOWN_RATE`, exit 0. 0.05: `RATE_REGRESSION`, exit still 0. |
+| M12 | Existing build untouched | Runs the root `test` target (which compiles first) before the other checks. | Root build succeeds. SKIP with `-Dverify.skip.roottests=true`. |
+| M13 | No existing file changed | `git diff --name-only <base>...HEAD -- . ':(exclude)reliability'` | Empty. SKIP if the base ref is not fetched. |
 
 ## 13. Pilot test: F7
 
@@ -292,28 +299,27 @@ Manifest entry:
 
 ### Pilot workflow
 
-Each step is done by hand and its outcome recorded in the pull request.
+P1 and P3 are checked by `verify`; P2 is the same as M1. P4 is running `verify` on each OS; P5 is a written review.
 
 | # | Step | Expected |
 | --- | --- | --- |
-| P1 | Write the test, without a manifest entry. Run with `-Donly=UndoReliability`. | Build fails; `NEW_FAILURE` with the F7 message. The class log shows the injected exception. This confirms it fails for the reason in the finding. |
+| P1 | `verify` runs the pilot alone with a manifest that omits its entry. | Build fails; `NEW_FAILURE` with the F7 message. The class log shows the injected exception. This confirms it fails for the reason in the finding. |
 | P2 | Add the manifest entry. Run the full suite. | Exit 0; `KNOWN` for F7 alongside the canary and smoke results. |
-| P3 | Simulate a fix with a throwaway local edit to `GameImpl`: move `restoreRunning = false` into a `finally` in `restoreSnapshot`, and restart the global clock in a `finally` in `clockUndo`. Run, then discard the edit with `git checkout -- src`. Never commit it. | Build fails; `UNEXPECTED_PASS` naming F7. This proves a real fix would flip the test. |
-| P4 | Repeat P2 on macOS and Windows. | Same result on each OS. |
+| P3 | `verify` copies `GameImpl.java` to a scratch directory, moves `restoreRunning = false` into a `finally` in `restoreSnapshot`, restarts the global clock if the restore throws in `clockUndo`, compiles it to an overlay placed first on the classpath, and runs the pilot. The source tree is never touched. If upstream changes `GameImpl` so the edit no longer applies, P3 is SKIP. | Build fails; `UNEXPECTED_PASS` naming F7. This proves a real fix would flip the test. |
+| P4 | Run `ant -f reliability/build.xml verify` on Linux, macOS and Windows. | `VERIFY: OK` on each OS. |
 | P5 | Write `docs/pilot-retro.md` in `crg-reliability-plan`: what worked, what was awkward, time spent, and proposed changes to this design or the plan. | Reviewed and accepted by Charles before any other finding gets a test. |
 
 ## 14. Acceptance criteria (the Phase 0 gate)
 
-Phase 0 is done when every manual check M1–M13 and pilot step P1–P4 passes on at least one Linux, one macOS and one Windows desktop, and the pilot retrospective (P5) is accepted. The pull request into `reliability` records the results as a table: one row per check, one column per OS, each cell pass or fail with the date and tester. M12, M13, P1 and P3 only need to be run once, on any OS.
+Phase 0 is done when `ant -f reliability/build.xml verify` reports `VERIFY: OK`, with no FAIL, on at least one Linux, one macOS and one Windows desktop, and the pilot retrospective (P5) is accepted. M12 must PASS, not SKIP, on at least one of them.
 
-The implementing agent runs M1–M13 and P1–P3 on Linux in its own environment before opening the pull request and fills in that column; a person runs the macOS and Windows columns.
+The implementing agent runs `verify` in its own environment before opening a pull request and pastes the summary into it. A person runs it on the other OSes.
 
 ## 15. Out of scope for Phase 0
 
 - Tests for any finding other than the F7 pilot. They start only after the pilot retrospective is accepted.
 - The protocol harness, device simulators, fault proxy and libfaketime (Phases 2–3).
 - Scheduled or nightly runs, their scripts, and archiving of past reports (Phase 1).
-- Automated self-tests of the runner (Phase 1).
 - CI integration on CircleCI or GitHub Actions.
 - Charts or dashboards of the scorecard history. Phase 0 only writes `scorecard.json` for each run.
 - Moving to Java 11. Reconsider at the start of Phase 2, which needs `java.net.http.WebSocket`.

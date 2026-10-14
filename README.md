@@ -98,11 +98,11 @@ The baseline for each metric is captured on `dev` in Phase 1, before any fix, an
 
 ## Phased rollout
 
-The suite lands in five phases over about 11 weeks of one developer's time. We start with one pilot test, for F7, and take it through the whole workflow — write it, confirm it fails on `dev` for the right reason, add its manifest entry, run it by hand on all three OSes, simulate a fix to see it flip — then hold a short retrospective. Only once the pilot works do we implement the rest of the tests, starting with four more in-JVM findings in Phase 1. Each phase ends at a gate, and no fix work needs to wait for the last phase: a finding can be fixed as soon as its test exists.
+The suite lands in five phases over about 11 weeks of one developer's time. We start with one pilot test, for F7, and take it through the whole workflow — write it, confirm it fails on `dev` for the right reason, add its manifest entry, run it on all three OSes, simulate a fix to see it flip — then hold a short retrospective. Only once the pilot works do we implement the rest of the tests, starting with four more in-JVM findings in Phase 1. Each phase ends at a gate, and no fix work needs to wait for the last phase: a finding can be fixed as soon as its test exists.
 
 ![All 17 findings get a failing test in five phases, about 11 weeks](images/rollout.png)
 
-Phase 0 is deliberately small so the known-issue convention is agreed before many tests depend on it. It is run and verified by hand only; scheduled runs and the runner's automated self-tests start in Phase 1. The week estimates are rough and assume someone who already knows the codebase.
+Phase 0 is deliberately small so the known-issue convention is agreed before many tests depend on it. It is started on demand rather than on a schedule, and the suite checks itself with `ant -f reliability/build.xml verify`; scheduled runs start in Phase 1. The week estimates are rough and assume someone who already knows the codebase.
 
 ## Risks and open questions
 
