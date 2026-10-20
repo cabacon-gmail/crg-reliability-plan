@@ -102,6 +102,8 @@ The suite lands in five phases over about 11 weeks of one developer's time. We s
 
 ![All 17 findings get a failing test in five phases, about 11 weeks](images/rollout.png)
 
+From Phase 2, the harness is driven by **traces**, one JSON Lines format for scripted scenarios and, later, for traces captured at real games ([Phase 2 design](docs/phase2-protocol-harness.md)).
+
 Phase 0 is deliberately small so the known-issue convention is agreed before many tests depend on it. It is started on demand rather than on a schedule, and the suite checks itself with `ant -f reliability/build.xml verify`; scheduled runs start in Phase 1. The week estimates are rough and assume someone who already knows the codebase.
 
 ## Risks and open questions
