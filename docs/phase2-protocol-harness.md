@@ -32,6 +32,8 @@ Like earlier phases, the harness runs on demand on the test desktops, with no sc
 | Java level | The `reliability/` tree moves to **Java 11** (`--release 11`), for `java.net.http.WebSocket` and `HttpClient`. The product stays on Java 8, and M12 keeps checking the root build. The test desktops already run JDK 21. |
 | Network path | Every simulated device connects **through its own `FaultProxy`** from the start. In Phase 2 the proxy only passes traffic through and can cut a connection. Latency, stalls and half-open sockets arrive in Phase 3 without restructuring. |
 | First test | A **pilot** (pilot retro, change 4): F6, two devices pressing Stop within 400 ms. It exercises the launcher, two devices, a trace, the replayer, the observer and an oracle. The rest of Phase 2 starts after its retro. |
+| F1 (wall-clock steps) | **In Phase 2** (decided Oct 20, 2026). `ServerLauncher` starts the server under libfaketime on Linux (and on macOS, if the spike's probe works there), driven by `clock` events. On Windows, a real system-clock step runs only when you opt in (`-Dreliability.allowClockChanges=true`, elevated PowerShell); otherwise the test is `SKIPPED`. |
+| Registered paths | Generated from the real screens by an automated harvest (section 6), not hand-written. |
 | Scheduling | None. On demand only. |
 
 ## 2. What the spike established
@@ -87,7 +89,7 @@ Captured traces may also carry `wall` (the server's wall-clock milliseconds) so 
 | `http` | `dev`, `method`, `path`, `body` | An HTTP request carrying the device's cookie, e.g. `POST /Load/JSON` with a file from the trace's directory. |
 | `recv` | `dev`, `msg` | (Captured traces only, optional.) A frame the server sent. **Not replayed**; kept for diagnosis and diffing. |
 | `stall` | `dev`, `ms` | (Synthetic only.) The device stops reading for `ms`, so the server's sends to it back up (F15). |
-| `clock` | `step` | (Synthetic only, Phase 3.) Step the server's wall clock, as in the spike. |
+| `clock` | `step` | (Synthetic only.) Step the server's wall clock, as in the spike (F1). |
 | `kill` | `signal`, `restart` | (Synthetic only.) Kill the server process (`-9`, i.e. a hard kill, or `term`), optionally restarting it on the same directory and port. |
 | `expect` | `dev?`, `within`, `state` | A checkpoint: within `within` ms, the given state keys must have the given values, as seen by `dev` or by the observer. If not, replay records a failure with the trace line number. |
 | `mark` | `label` | A label for reports. |
@@ -137,10 +139,25 @@ Harness tests are ordinary `*ReliabilityTest` classes run by the existing runner
 
 ## 6. Registered paths
 
-Real screens register many narrow paths, built from `sb*` attributes when the page loads. The harness needs a representative set for each role. In Phase 2:
+What a device registers decides what the server sends it. That matters for load-sensitive results such as F15 and latency. Each real screen registers many narrow paths, built from its `sb*` attributes when the page loads.
 
-- **Version 1** gives each `CrewProfile` role broad prefixes: SBO gets `ScoreBoard.Game($GAME)`, `ScoreBoard.Settings` and `ScoreBoard.Clients`; PT gets `ScoreBoard.Game($GAME).Team`; and so on. This is a superset of what real screens register. Oracles stay valid, but the server sends more than it would in the field, so load-sensitive results (F15) are approximate.
-- **Better, once capture exists:** a real screen's `Register` messages are just `send` events in a captured trace. Each role's actual path set can be copied from a capture into its `CrewProfile`. Until then, the paths can be harvested once by loading each screen in Chrome and copying the `Register` frames from the developer tools (Network → the `/WS/` connection → Messages).
+**Measured on `dev` (Oct 20, 2026).** Headless Chromium loaded each real screen against the packaged server, and its `Register` frames were recorded. The same path sets, and broad per-role prefixes for comparison, were then replayed through the harness client while a jam ran:
+
+| Subscription | Paths | Initial load | 10 s of a running jam |
+| --- | --- | --- | --- |
+| SBO, real screen | 298 | 72 KB | 11 KB |
+| SBO, broad (`Game($GAME)`, `Settings`, `Clients`) | 3 | 105 KB | 81 KB |
+| Main display, real screen | 145 | 21 KB | 11 KB |
+| Main display, broad (`CurrentGame`, `Settings`) | 2 | 65 KB | 57 KB |
+| Penalty tracking (team 1), real screen | 119 | 38 KB | not measured |
+
+Broad prefixes are fine for correctness oracles: they receive a superset. But they **overstate steady-state traffic by 5–7×**, which would make F15 and the latency baseline pessimistic. The frame count is about the same, because the server sends one batch per clock tick.
+
+The spike scripts and raw results are in [`phase2-harvest-spike/`](phase2-harvest-spike/).
+
+**Decision: harvest the real paths automatically.** `reliability/tools/harvest-crew.js` starts the packaged server and loads each screen in the crew profile with Playwright and Chromium. It records the screen's `Register` paths, replaces the game ID with `$GAME`, and writes `reliability/crews/<profile>.json`. These generated files are committed. Re-run the harvest when screens change; a stale profile only affects load realism, not correctness.
+
+Playwright is needed only to run the harvest, never to run the tests. Phase 4 needs it anyway. Once real-game capture exists (section 9), captured `Register` events can feed the same files.
 
 ## 7. Tests in Phase 2
 
@@ -157,14 +174,14 @@ Scenarios are written as traces through the DSL, so each one can also be saved a
 | 2 | F6 | Two devices press *different* buttons within 1 s (Stop, then Timeout). | No automatic undo of the first press. | natural |
 | 3 | F10 | The same `TripScore +1` change is sent twice, as a retry would. | Applied once. This needs request IDs in the protocol, so it is expected to fail until the protocol changes. | injected (a retry) |
 | 4 | F11 | 500 times: connect a display and register immediately. | Every display's mirror shows the team names within 2 s, with no reload. | natural |
-| 5 | F2 | The statsbook is exported during a jam with nine devices connected. | No gap in jam-clock updates longer than 1.2 s; a command sent during the export applies within 500 ms. Needs a blank WFTDA statsbook (`-Dreliability.statsbook=<path>`); `SKIPPED` without one. | natural |
+| 5 | F2 | The statsbook is exported during a jam with nine devices connected. | No gap in jam-clock updates longer than 1.2 s; a command sent during the export applies within 500 ms. Needs a blank WFTDA StatsBook workbook (`-Dreliability.statsbook=<path>`). The test uploads it the way the Games / Teams / Rulesets screen does (`POST /Load/blank_xlsx`), and proceeds only if the server reports `ScoreBoard.BlankStatsbookFound = true`. It is `SKIPPED`, naming the reason, when no path is given or CRG rejects the workbook. | natural |
+| 5b | F1 | During a jam, step the server's wall clock +5 min, then −5 min (`clock` events). | Game clocks stay within 1 s of the harness's monotonic reference; no jam is auto-ended by the step; no freeze. Linux: libfaketime. Windows: opt-in real clock step, otherwise `SKIPPED`. | natural (NTP or a person correcting the clock) |
 | 6 | F12 | `kill -9` at a random point in the reference bout, then restart. | The restored state is at most 10 s behind the kill. **Provisional** pending the autosave-semantics decision. | injected (a crash) |
 | 7 | F15 | The overlay device stops reading for 5 min during the reference bout. | Other devices' p95 press-to-visible latency stays within 1.5× of a run without the stall; the server stays up under `-Xmx256m`; the overlay converges after it resumes. | injected (a stalled client) |
 | 8 | F17 | `POST /Media/upload` with a file named `../../config/autosave/x.json`. | Rejected, and nothing is written outside the media folder. (The dependency-advisory half of F17 needs a network-connected scanner and is tracked separately.) | injected (a hostile upload) |
 
 **The reference bout** is a synthetic trace for the default nine-device crew, built with the DSL from the short-periods seed. It runs about 5 minutes and is played by the F12 and F15 tests and the baseline-latency run.
 
-**Optional, your call: pull F1 forward.** The spike showed F1 only needs libfaketime in the server's environment on Linux, or an opt-in real clock step on Windows, and `ServerLauncher` already controls that environment. Adding it here would mean a `clock` event in the trace and one test class.
 
 ## 8. Verification
 
@@ -206,7 +223,10 @@ Open questions for that design:
 - Trace capture in the product (section 9).
 - Scheduled runs and CI.
 
-**Open questions for you:**
-1. **Pull F1 into Phase 2?** It's small (section 7). Yes or no.
-2. **A blank WFTDA statsbook for F2.** The repo ignores `*.xlsx`. Can you put one on each test desktop and pass its path, or should F2 wait?
-3. **Registered paths:** are broad prefixes per role acceptable for Phase 2 (section 6), with real path sets once capture or a browser harvest exists?
+**Decided Oct 20, 2026:**
+- F1 is in Phase 2.
+- You will put a blank WFTDA StatsBook workbook on each test desktop.
+- Registered paths are harvested automatically from the real screens (section 6).
+
+**Open:**
+- **Which StatsBook edition CRG accepts.** CRG's documentation asks for the January 2019 workbook; WFTDA's site now offers February 2025. The F2 test reports which one CRG accepted.
