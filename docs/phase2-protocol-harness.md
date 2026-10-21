@@ -31,7 +31,7 @@ Like earlier phases, the harness runs on demand on the test desktops, with no sc
 | Harness input | A **trace**: the format in section 3. Scenario code and the bout DSL build traces in memory; captured traces are loaded from files. One `Replayer` executes all of them. |
 | Java level | The `reliability/` tree moves to **Java 11** (`--release 11`), for `java.net.http.WebSocket` and `HttpClient`. The product stays on Java 8, and M12 keeps checking the root build. The test desktops already run JDK 21. |
 | Network path | Every simulated device connects **through its own `FaultProxy`** from the start. In Phase 2 the proxy only passes traffic through and can cut a connection. Latency, stalls and half-open sockets arrive in Phase 3 without restructuring. |
-| First test | A **pilot** (pilot retro, change 4): F6, two devices pressing Stop within 400 ms. It exercises the launcher, two devices, a trace, the replayer, the observer and an oracle. The rest of Phase 2 starts after its retro. |
+| First test | A **pilot** (pilot retro, change 4): F6, with two devices reacting to one timeout whistle (section 7). It exercises the launcher, two devices, a trace, the replayer, the observer and an oracle. The rest of Phase 2 starts after its retro. |
 | F1 (wall-clock steps) | **In Phase 2** (decided Oct 20, 2026). `ServerLauncher` starts the server under libfaketime on Linux (and on macOS, if the spike's probe works there), driven by `clock` events. On Windows, a real system-clock step runs only when you opt in (`-Dreliability.allowClockChanges=true`, elevated PowerShell); otherwise the test is `SKIPPED`. |
 | Registered paths | Generated from the real screens by an automated harvest (section 6), not hand-written. |
 | Scheduling | None. On demand only. |
@@ -170,8 +170,8 @@ Scenarios are written as traces through the DSL, so each one can also be saved a
 
 | Order | Finding | Scenario | Passes when | Trigger |
 | --- | --- | --- | --- | --- |
-| 1 (pilot) | F6 | SBO and JT both send Stop 300 ms apart during a jam. | Exactly one jam end; no lineup started by the second press; no clock undo. | natural |
-| 2 | F6 | Two devices press *different* buttons within 1 s (Stop, then Timeout). | No automatic undo of the first press. | natural |
+| 1 (pilot) | F6 | The SBO calls a timeout and assigns it to Team 1; the JT presses Timeout for the same whistle 1.2 s later. | One timeout, still Team 1's. On `dev` there are two, and the running one has no owner. | natural |
+| 2 | F6 | Two devices press *different* buttons within 1 s: the SBO calls a timeout, and the JT presses Stop 600 ms later. | The SBO's timeout is not silently deleted. On `dev`, the "quick correction" rule treats the second press as one operator correcting the first, and replaces it. | natural |
 | 3 | F10 | The same `TripScore +1` change is sent twice, as a retry would. | Applied once. This needs request IDs in the protocol, so it is expected to fail until the protocol changes. | injected (a retry) |
 | 4 | F11 | 500 times: connect a display and register immediately. | Every display's mirror shows the team names within 2 s, with no reload. | natural |
 | 5 | F2 | The statsbook is exported during a jam with nine devices connected. | No gap in jam-clock updates longer than 1.2 s; a command sent during the export applies within 500 ms. Needs a blank WFTDA StatsBook workbook (`-Dreliability.statsbook=<path>`). The test uploads it the way the Games / Teams / Rulesets screen does (`POST /Load/blank_xlsx`), and proceeds only if the server reports `ScoreBoard.BlankStatsbookFound = true`. It is `SKIPPED`, naming the reason, when no path is given or CRG rejects the workbook. | natural |
@@ -182,6 +182,8 @@ Scenarios are written as traces through the DSL, so each one can also be saved a
 
 **The reference bout** is a synthetic trace for the default nine-device crew, built with the DSL from the short-periods seed. It runs about 5 minutes and is played by the F12 and F15 tests and the baseline-latency run.
 
+
+**Correction (Oct 20, 2026).** The code review predicted that two devices pressing Stop close together would misbehave. Probing `dev` showed that case is guarded: a second Stop during lineup is ignored, and the same button pressed twice within 1 s is dropped. F6's real exposure is two devices pressing **the same button more than 1 s apart**, which the server reads as a deliberate second action (scenario 1), or **different buttons less than 1 s apart**, which it reads as one operator correcting themselves (scenario 2). A fix needs each command to carry the state the operator saw, so the server can tell "same whistle" from "new call".
 
 ## 8. Verification
 
