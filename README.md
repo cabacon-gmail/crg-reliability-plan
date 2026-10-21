@@ -120,6 +120,10 @@ The biggest risk is flaky timing tests, which would teach people to ignore the s
 
 Tests run on dedicated desktops, so contention for test machines and run-time budgets are not a concern; the full 8-hour soak can run nightly.
 
+### Strangler fig: next steps
+
+The rearchitecture direction and the workstreams to choose milestone 1 from are in [docs/strangler-fig-next-steps.md](docs/strangler-fig-next-steps.md). In short: fix the core first, so version-1 clients benefit; use the recording proxy only to capture real games; add protocol version 2 as optional JSON fields with a version negotiation.
+
 ### Open design question: autosave semantics
 
 Status: **open**. Owner: Charles. Nothing below is decided.
