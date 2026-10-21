@@ -95,7 +95,13 @@ flowchart LR
 | **2. Quick wins plus data** | B, A, C1 | As option 1, plus recordings from real games start arriving, which settles whether F12, F15 and F2 matter in practice before we spend effort on them. | About 1–2 weeks |
 | **3. Foundations** | B, A, C1, F, and the design (not the code) of D | As option 2, plus F7 and F9 flip, and the protocol v2 design goes upstream for discussion early, while the code is still cheap to change. | About 3–4 weeks |
 
-Recommendation: **option 2**. It fixes real bugs for every crew, and it starts collecting the evidence the rest of the plan depends on. Three of the review's predictions (F12, F15 and possibly F2) did not hold at realistic load, so real recordings should decide G and H, not the review.
+**Decided (Oct 20, 2026): option 2.** As built:
+- **B** ([PR #8](https://github.com/cabacon-gmail/scoreboard/pull/8)): F17 flipped, for plain uploads and zip entries.
+- **A** ([PR #9](https://github.com/cabacon-gmail/scoreboard/pull/9)): the F14 fan-out race, plus two ordering races found while fixing it (a new listener's snapshot overtaking a newer update, and `WS.java` locking on an object it replaces). F14 flipped at the protocol level (72% to 0) and in-JVM (45% to 0).
+- **F15's bounded queues are deferred.** The overlay's real subscription never fills the socket buffers, so there is no failing test to prove a change. Real recordings decide whether it comes back.
+- **C1** is on the `milestone1` branch: names redacted by default, a reconnecting device kept as one trace device, a one-file `crg-recorder.jar` with launchers that start CRG behind it, and crew instructions (`reliability/RECORDING.md`).
+
+Recommendation was **option 2**. It fixes real bugs for every crew, and it starts collecting the evidence the rest of the plan depends on. Three of the review's predictions (F12, F15 and possibly F2) did not hold at realistic load, so real recordings should decide G and H, not the review.
 
 ## 6. How each change is proven
 
