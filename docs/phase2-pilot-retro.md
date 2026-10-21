@@ -34,6 +34,17 @@ What went wrong was the prediction itself. The review's F6 scenario turned out t
 3. **Real-time replay sets a floor on test length.** The pilot takes about 7 s of wall time because the server's clocks are real. Fine for the scenarios here, but the 5-minute reference bout will dominate a full run. That is acceptable for on-demand runs on dedicated desktops.
 4. **The Java 11 move was invisible.** The desktops already had JDK 21, and the product build stayed on Java 8 (M12). Nobody noticed, which is the right outcome.
 
+## Added while building the rest of Phase 2
+
+These came up after the pilot, while applying change 1 below to F10, F11 and F17:
+
+5. **A probe caught a false pass.** The first F17 run passed. The server had answered the upload with a 500, because it only knows a device once that device's page has opened the WebSocket, so a bare HTTP request never reached the vulnerable code. The test now makes an ordinary upload first and treats its failure as a setup error. **Every test that could pass by doing nothing needs a control step like this.**
+6. **The F11 `Register` race did not reproduce.** 1,000 displays connecting and registering at once, during a running jam, all got the team names. The review's theory depends on a timing window that localhost, let alone Wi-Fi, doesn't open. The test stays as a guard. The other half of F11 (a lost delta) needs Phase 3's fault proxy.
+7. **Stressing F11 found F14 over the wire.** When ten devices connect at the same moment, the fan-out race from Phase 1 refuses some of their WebSocket handshakes (72% of rounds). That is what a crew sees when venue Wi-Fi comes back and every screen reconnects together. It now has its own protocol-level test.
+
+8. **Three predictions did not hold at realistic load.** F12 (`kill -9`), F15 (a stalled overlay) and, on this machine, F2 (statsbook export) all stayed within their limits. Each test stays as a guard. Each also names what would make it bite: power loss rather than a process kill; a client registering far more than a real screen; a slower laptop. That is worth checking against real crew reports before spending fix effort on them.
+9. **Bout tests changed the cost of `verify`.** The reference bout, F12 and F15 add about 20 minutes. Change 3 below is now built: `@Slow` classes, `-Dquick=true` for runs, and `-Dverify.quick=true` for verify.
+
 ## Proposed changes
 
 | # | Change | Where | Why |

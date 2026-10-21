@@ -180,6 +180,24 @@ Scenarios are written as traces through the DSL, so each one can also be saved a
 | 7 | F15 | The overlay device stops reading for 5 min during the reference bout. | Other devices' p95 press-to-visible latency stays within 1.5× of a run without the stall; the server stays up under `-Xmx256m`; the overlay converges after it resumes. | injected (a stalled client) |
 | 8 | F17 | `POST /Media/upload` with a file named `../../config/autosave/x.json`. | Rejected, and nothing is written outside the media folder. (The dependency-advisory half of F17 needs a network-connected scanner and is tracked separately.) | injected (a hostile upload) |
 
+**As built (Oct 20, 2026).** Probing each scenario before writing its test (pilot retro, change 1) changed several rows. Results on Linux:
+
+| Finding | Result | Manifest |
+| --- | --- | --- |
+| F6 #2 | Reproduces: the JT's Stop 600 ms after the SBO's Timeout deletes the timeout. | `single` |
+| F10 | Reproduces: a repeated +1 frame scores 2. | `single` |
+| F11 | **Does not reproduce.** 1,000 displays registering immediately, ten at a time during a jam, all got the team names. The test stays as a passing guard; the lost-delta half needs Phase 3. | none |
+| F14 (new row) | Reproduces over the wire: ten devices connecting at once get refused handshakes in 72% of rounds, the Phase 1 fan-out race as a crew sees it when Wi-Fi comes back. `ReconnectStormReliabilityTest`. | `rate` 0.72 |
+| F17 | Reproduces, for a plain file and for a zip entry: the file lands in `config/autosave/`. | `single` ×2 |
+| F2 | **Borderline here.** On a late-game seed (period 2, jam 20), four exports during one jam: the first, cold export froze the jam clock for 1.2 s; warm exports took under 1 s and froze it for about 0.4 s. Presses applied within 90 ms. The test reports a rate. It runs only with `-Dreliability.statsbook`, so it has no manifest entry until it has been run on the desktops, which are likely slower. | none yet |
+| F1 | Reproduces with libfaketime: +5 min then −5 min left the jam clock 115 s and the period clock 300 s off, and the jam had not ended even though its clock ran out. | `single` |
+| F12 | **Does not reproduce with `kill -9`.** One random kill per 5-minute bout gives one sample per run, so the test instead kills the server 15 times at seeded random moments during scoring. Every restart was at most 10 s behind. A process kill leaves the OS's buffered writes intact; power loss (the no-fsync half) needs Phase 3 or real hardware. | none |
+| F15 | **Does not reproduce at real-screen subscriptions.** The overlay registers 93 paths, about 1 KB/s, so 5 minutes of stall fits in the socket buffers and the server never queues. Crew p95 latency was 10 ms against 13 ms without the stall. A client registering everything would stress the queue; whether that is realistic is an open question. | none |
+
+Localhost latencies are a few milliseconds, so F15's "within 1.5×" alone would be noise. The allowance is 1.5× the baseline p95 or the baseline plus 50 ms, whichever is larger.
+
+**Baseline.** The reference bout with the nine-device crew: press-to-visible p50 4 ms, p95 9 ms, max 14 ms over 210 samples, no misses (Linux sandbox).
+
 **The reference bout** is a synthetic trace for the default nine-device crew, built with the DSL from the short-periods seed. It runs about 5 minutes and is played by the F12 and F15 tests and the baseline-latency run.
 
 
