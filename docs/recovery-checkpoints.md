@@ -56,42 +56,87 @@ where `<reason>` is `jam-end`, `timeout-end`, `period-end` or `export`.
 | Retention | Every checkpoint of a game is kept. At start-up, checkpoint folders whose newest file is older than 90 days are deleted. | A game is about 60 jam boundaries, roughly 30–60 MB uncompressed. A season of games fits easily; old games don't pile up for ever. |
 | Undo | Unchanged | Out of scope. |
 
-## 3. The Restore screen
+## 3. The Recovery tab
 
-A **Recovery** tab in Settings lists, for each game:
-- its checkpoints (newest first);
-- the last minute's autosaves;
-- the start-up backups.
+### 3.1 What a restore means for the statsbook
 
-Each row shows the time, the reason, the period and jam, and the score. A row has two actions:
-- **Restore as a copy:**
-  - The server loads the checkpoint's game under a **new game ID**, named `<game name> (restored P2 J12)`.
-  - The new game becomes the current game, the same way the SBO switches games.
-  - The original game is left untouched, so a restore can never make things worse; the crew can delete the original later.
-  - Restoring from an autosave or backup takes just that game's keys from the file.
-- **Download:** saves the checkpoint as a file.
+The statsbook is **not live**. It is written only when someone presses **Update** on the IGRF tab: `StatsbookExporter` fills a blank workbook from that game's whole state into `html/game-data/xlsx/<Filename>.xlsx`. A game's `Filename` (`STATS-<date>_<team1>_vs_<team2>`) is fixed once the game has started.
 
-Server side, in a new `RecoveryServlet`:
-- `GET /Recovery/list` returns the rows as JSON.
-- `POST /Recovery/restore` with the source and the file restores a copy.
+So a game restored with its full history produces a complete statsbook whenever Update is pressed. The SBO's start-mid-game produces one with only the score, timeouts and period.
+
+**Restore (decided Oct 21):**
+1. Load the checkpoint into a **new game**, under a new ID, with the **original's `Filename` and name**. The final statsbook and game file keep the names everyone expects.
+2. **Abandon the old game**: rename it to `<name> (abandoned <time>)` and give it a new `Filename` with the same suffix, so it can never overwrite the restored game's files. It stays in the games list for reference and can be deleted later.
+3. Make the new game the current game.
+
+The restored game starts with the clocks as they were at the checkpoint.
+
+### 3.2 What the tab shows
+
+A **Recovery** tab in Settings. Games come first, so people find theirs by what they know about it; restore points come second.
+
+```
+Recovery
+------------------------------------------------------------------------------------------
+ Games                                        newest first
+ > 2026-10-21 18:30   Home Testers vs Away Testers     P2 J14   87 - 95   18:42 left   CURRENT
+   2026-10-21 16:00   Black vs White                    Final              112 - 140
+   2026-10-14 19:00   Reliability League vs Harness     Final              201 - 167
+------------------------------------------------------------------------------------------
+ Restore points for Home Testers vs Away Testers
+   Saved          Where in the game          Score      Period clock   From
+   18:58:02       P2 after jam 14 (lineup)   87 - 95    18:42 left     autosave, 10 s ago
+   18:57:40       P2 end of jam 14           87 - 95    18:44 left     checkpoint
+   18:55:12       P2 end of jam 13           80 - 91    20:31 left     checkpoint
+   18:54:01       P2 end of timeout (Home)   76 - 91    21:03 left     checkpoint
+   ...
+   18:31:05       P1 start                    0 - 0     30:00 left     checkpoint
+   18:20:44       before the game                        30:00 left     backup from a restart
+                                                       [Download]   [Restore...]
+```
+
+**Each game row:**
+- the date and start time, from the game's IGRF;
+- both team names;
+- the period and current jam, or "Final";
+- the score;
+- the period clock left;
+- whether it is the current game.
+
+**Each restore point:**
+- when it was saved;
+- where in the game it is (period, jam, and the moment: jam end, timeout end, period start or end);
+- the score;
+- the period clock left;
+- where it comes from (checkpoint, autosave, or backup from a restart).
+
+Autosaves and backups appear as rows of the game they contain. Autosaves are newest of all, but only go back a minute.
+
+**Restore...** opens a confirmation that says what will happen in the crew's words:
+
+> Restore "Home Testers vs Away Testers" to **P2 end of jam 13** (80 – 91, 20:31 left)?
+> - A new copy of the game, from that point, becomes the current game. It keeps the same name and statsbook file.
+> - The game as it is now is kept, renamed "… (abandoned 18:59)".
+> - Clocks will be as they were then. **Check the period clock** before the next jam.
+
+During a jam, the dialog first says a jam is running and asks for confirmation.
+
+**Server side**, in a new `RecoveryServlet`:
+- `GET /Recovery/list` returns the games and their restore points as JSON, with the summary values above read from each file.
+- `POST /Recovery/restore` does the three steps in 3.1.
 - Both need write access, like every other change.
-
-**After a restore,**
-- clocks come back as saved, so the screen reminds the crew to check the period clock;
-- a restore during a jam asks for confirmation first.
-
-**Statsbook:** the restored copy holds the full history up to its checkpoint, so its export is complete.
 
 ## 4. Tests, written first
 
-Each is a reliability test. Those that fail today get a manifest entry under a new finding, **F18 "no way back past the last minute"**, and flip as the work lands.
+Each is a reliability test. Those that fail today get a manifest entry under a new finding, **F19 "no way back past the last minute"**, and flip as the work lands.
 
 | Test | Today | Passes when |
 | --- | --- | --- |
 | `RestartFidelity`: the probe in section 1, as a test | Passes (guard) | It keeps passing. |
-| `JamCheckpoints`: after the reference bout, there is a checkpoint for every jam end, the timeout and each period start and end, each loadable | Fails (F18) | Section 2 is built. |
-| `RewindToJam`: play four jams with points and penalties, restore the checkpoint at the end of jam 2 through `/Recovery/restore` | Fails (F18) | The current game is a new copy with jam 2's end state: scores, penalties and lineups from jams 1–2 only. The original game is unchanged. The copy's statsbook export has jams 1–2. |
-| `RestoreFromAutosave` and `RestoreFromBackup` | Fails (F18) | The same, from the other sources. |
+| `JamCheckpoints`: after the reference bout, there is a checkpoint for every jam end, the timeout and each period start and end, each loadable | Fails (F19) | Section 2 is built. |
+| `RewindToJam`: play four jams with points and penalties, restore the checkpoint at the end of jam 2 through `/Recovery/restore` | Fails (F19) | The current game is a new copy with jam 2's end state: scores, penalties and lineups from jams 1–2 only. It has the original's name and `Filename`. The original is kept, unchanged except for its "(abandoned …)" name and new `Filename`. The copy's statsbook export has jams 1–2. |
+| `RestoreFromAutosave` and `RestoreFromBackup` | Fails (F19) | The same, from the other sources. |
+| `RecoveryList` | Fails (F19) | Each game and restore point shows the date, teams, period, jam, score and period clock left, matching the game's state at that point. |
 | Product unit tests for the ID rewriting and the list | — | With the change. |
 
 ## 5. Not now: options for later
@@ -118,9 +163,9 @@ Each is a reliability test. Those that fail today get a manifest entry under a n
 
 F12 and F13 stay provisional, with their current expectations.
 
-## 7. For review
+## 7. Review (Oct 21, 2026)
 
-1. **Where the Recovery screen lives:** a new Settings tab (proposed), or on the SBO next to "start new game"?
-2. **Retention:** 90 days, or never delete automatically?
-3. **Naming** of a restored game, and whether the original should be marked as abandoned.
-4. **The new finding number F18** for "no way back", so the tests follow the usual manifest flow.
+1. **Where:** a new Settings tab. Its layout is in 3.2, for discussion.
+2. **Retention:** delete after 90 days.
+3. **Restore:** a new game with the original's name and statsbook file; the old game is kept as abandoned. The statsbook is only written on demand, so this keeps it whole (3.1).
+4. **Finding number:** F19.
