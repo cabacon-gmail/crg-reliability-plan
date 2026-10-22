@@ -126,7 +126,7 @@ The rearchitecture direction and the workstreams to choose milestone 1 from are 
 
 ### Open design question: autosave semantics
 
-Status: **open**. Owner: Charles. Nothing below is decided.
+Status: **partly decided (Oct 21, 2026).** Owner: Charles. Recovery history is decided: per-game checkpoints at every jam boundary, plus a Restore screen; see [docs/recovery-checkpoints.md](docs/recovery-checkpoints.md), section 6, for the answers so far. The loss window, power loss and autosave failure reporting are still open.
 
 We have not yet defined what autosave is supposed to guarantee. Several findings (F12, F13) and targets (data lost on a hard kill) depend on that definition, so for now their tests encode **provisional** expectations. Once this question is settled, those tests and targets are revisited.
 
