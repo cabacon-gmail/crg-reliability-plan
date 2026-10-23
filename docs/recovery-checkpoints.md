@@ -1,6 +1,6 @@
 # Recovery: per-jam checkpoints and a Restore screen
 
-Status: draft for review · Parent plan: [README.md](../README.md) (open question: autosave semantics) · Workstream G in [strangler-fig-next-steps.md](strangler-fig-next-steps.md) · Oct 21, 2026
+Status: built, on [`recovery-checkpoints`](https://github.com/cabacon-gmail/scoreboard/tree/recovery-checkpoints) (product) and [`recovery`](https://github.com/cabacon-gmail/scoreboard/tree/recovery) (tests) · Parent plan: [README.md](../README.md) (open question: autosave semantics) · Workstream G in [strangler-fig-next-steps.md](strangler-fig-next-steps.md) · Oct 21, 2026
 
 **Decided (Oct 21, 2026).** Build options 1 and 2 from the recovery discussion:
 - per-game checkpoints at every jam boundary, kept for the whole game;
@@ -163,7 +163,31 @@ Each is a reliability test. Those that fail today get a manifest entry under a n
 
 F12 and F13 stay provisional, with their current expectations.
 
-## 7. Review (Oct 21, 2026)
+## 7. As built (Oct 22, 2026)
+
+Changes from the design, all found while building:
+- **No checkpoint at period start.** In the code, a period starts in the same batch of changes as its first jam, so a "period start" checkpoint would already contain the jam. The last jam-end checkpoint of the previous period is the same point, and the list labels it "end of period".
+- **Checkpoints also at official score and at statsbook Update.** These are the moments the game file was already written. A restore adds a "restored here" point, and the abandoned game gets a "set aside here" point.
+- **A timeout end is a restore point only when a timeout actually ended.** `_endTimeout` also runs when a jam starts after a timeout; that still writes the game file, but adds no restore point.
+- **Checkpoints live in `html/game-data/checkpoints/`**, outside the `json/` folder the media watcher lists, so they don't appear as game files.
+- **The short list** shows the newest autosave, if it is newer than every restore point, and then the newest restore points. Autosaves come every 10 s and would otherwise fill the list.
+- **Element IDs.** A restored copy gets new IDs for the game and every element in it, so it shares nothing with the abandoned game. References outside the game, such as rulesets, are kept.
+- **Only from the scoreboard's computer.** A restore must come from a loopback address with no `X-Forwarded-For` or `X-CRG-Forwarded-For` header. The recorder now adds `X-CRG-Forwarded-For` to everything it forwards; otherwise every device behind it would look local.
+- **Still to do:** show `CheckpointError` on the SBO, not only on the Recovery page.
+
+Tests:
+- The F19 tests fail on `dev` with "F19: the Recovery list is not available (404)", and pass with the change:
+  - every jam and timeout boundary is a restore point;
+  - the list shows what people recognise a game by;
+  - rewind to the end of jam 2;
+  - restore from an autosave;
+  - restore from a start-up backup;
+  - refused with a proxy header;
+  - refused through the recorder.
+- The restart guard passes on both.
+- New product unit tests: `CheckpointsTests` (summary, game IDs, copying a game's IDs) and two in `GameImplTests` (abandon, explicit file name).
+
+## 8. Review (Oct 21, 2026)
 
 1. **Where:** a new Settings tab. Its layout is in 3.2, for discussion.
 2. **Retention:** delete after 90 days.
